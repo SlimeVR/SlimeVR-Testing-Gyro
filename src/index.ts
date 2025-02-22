@@ -1,93 +1,93 @@
-import { Message } from "*can.node";
 import * as can from "socketcan";
-import { decodePacket, DownlinkPackets, encodePacket, PacketType, SetHome } from "./packets";
-import { fromEvent, Subject, timeout, firstValueFrom, throwError, of, Observable } from 'rxjs';
-import { filter, map, take, catchError } from 'rxjs/operators';
+import { Message } from '*can.node'
+
+import { getCmdId, getNodeId, initOdriveApi } from "./api-generator/odrive-api";
+import { apiFunctions, HeartbeatMessage, inboundPacketsMap, Packets } from "./generated-api";
 
 const channel = can.createRawChannel("can0", true);
-
-// Create an observable for CAN messages
-const message$ = new Observable<Message>((subscriber) => {
-  channel.addListener("onMessage", (msg: Message) => {
-    subscriber.next(msg);
-  });
-});
-
-// Subject to track sent messages and their corresponding responses
-const responseSubject = new Subject<Message>();
-
-// Subscribe to messages and push them to the subject
-message$.subscribe((msg: Message) => {
-  // console.log(`Received message from device(${msg.id}):`, decodePacket(msg.id, msg.data));
-  responseSubject.next(msg);  // Push received message to the subject
-});
-
-const sendMessage = async <T extends DownlinkPackets>(device: number, data: T) => {
-  const encodedData = encodePacket(device, data);
-
-  // Send the packet
-  channel.send({ id: device, data: encodedData, ext: false, rtr: false });
-  console.log(`Sent packet to device(${device})`);
-
-  // Wait for a confirmation response with a timeout
-  try {
-    const response = await firstValueFrom(
-      responseSubject.pipe(
-        filter((msg: Message) => msg.id === device),  // Filter messages by device ID
-        take(1),                                      // Take the first matching message
-        timeout(2000),                                // Timeout if no response within 2 seconds
-        catchError(() => throwError(() => new Error(`Timeout waiting for response from device(${device})`)))
-      )
-    );
-
-    console.log(`Confirmation received from device(${device}):`, decodePacket(response.id, response.data));
-  } catch (err) {
-    console.error(err);
-  }
-};
-
-const initMotor = async (device: number, current: number) => {
-  await sendMessage(device, { id: PacketType.SetWorkMode, mode: 'SR_OPEN' });
-  await sendMessage(device, { id: PacketType.WorkingCurrent, ma: current });
-  await sendMessage(device, { id: PacketType.HoldingCurrentParcent, holdMa: 8 })
-  await sendMessage(device, { id: PacketType.Mplyer, enable: true })
-  await sendMessage(device, { id: PacketType.Protect, enable: true })
-  await sendMessage(device, { id: PacketType.ReadShaftProtection, protected: true })
-  await sendMessage(device, { id: PacketType.Enable, enable: 'low' })
-  await sendMessage(device, { id: PacketType.Subdivision, micstep: 16 })
-  await sendMessage(device, { id: PacketType.SetMode0, enable: true, dir: 'cw', mode_0: 'near_mode', speed: 1 })
-}
-
-// Start the CAN channel
 channel.start();
 
-const sleep = async (time: number) => new Promise<boolean>((resolve, reject) => setTimeout(() => resolve(true), time));
+const odriveApi = initOdriveApi(channel);
+const odrive1 = apiFunctions(odriveApi, 1);
+const odrive2 = apiFunctions(odriveApi, 2);
+const odrives = [odrive1, odrive2];
 
-// Send messages and handle responses
+type Odrive = typeof odrives[0];
+
+const sleep = (time: number) => new Promise(resolve => setTimeout(() => resolve(true), time));
+const forEachController = async (call: (odrive: typeof odrive1) => Promise<void> | void) => {
+    for (const odrive of odrives) {
+        await call(odrive);
+    }
+}
+
+
+const initOdrive = async (odrive: Odrive) => {
+    odrive.endpoints['axis0.config.can.encoder_msg_rate_ms'].set(10)
+    odrive.endpoints['config.inverter0.current_soft_max'].set(3)
+    odrive.endpoints['config.inverter0.current_hard_max'].set(5)
+    odrive.endpoints['axis0.controller.config.vel_limit'].set(5)
+    odrive.endpoints['axis0.trap_traj.config.vel_limit'].set(4)
+    odrive.endpoints['axis0.trap_traj.config.accel_limit'].set(20)
+    odrive.endpoints['axis0.trap_traj.config.decel_limit'].set(20)
+    odrive.endpoints['axis0.controller.config.vel_gain'].set(10)
+    odrive.endpoints['axis0.controller.config.pos_gain'].set(3)
+    odrive.endpoints['axis0.controller.config.vel_integrator_gain'].set(10)
+    odrive.endpoints['inc_encoder0.config.enabled'].set(true)
+    odrive.endpoints['axis0.config.load_encoder'].set(1)
+    odrive.endpoints['axis0.config.commutation_encoder'].set(1)
+    odrive.endpoints['inc_encoder0.config.cpr'].set(20480)
+    odrive.endpoints['axis0.commutation_mapper.config.use_index_gpio'].set(true)
+    odrive.endpoints['axis0.pos_vel_mapper.config.use_index_gpio'].set(true)
+    odrive.endpoints['config.gpio4_mode'].set(0)
+    odrive.endpoints['axis0.pos_vel_mapper.config.index_gpio'].set(4)
+    odrive.endpoints['axis0.pos_vel_mapper.config.index_offset'].set(0)
+    odrive.endpoints['axis0.commutation_mapper.config.index_gpio'].set(4)
+    odrive.endpoints['axis0.pos_vel_mapper.config.index_offset_valid'].set(true)
+}
+
+channel.addListener('onMessage', (msg: Message) => {
+    const cmdId = getCmdId(msg.id);
+    const nodeId = getNodeId(msg.id);
+    const inPacket = inboundPacketsMap[cmdId as keyof typeof inboundPacketsMap];
+    if (!inPacket) {
+        throw 'invalid id'
+    }
+    const res = inPacket(msg.data);
+    if (cmdId === Packets.Heartbeat) {
+        const hearbeat = res as HeartbeatMessage;
+        if (hearbeat.axisError !== 'NONE') {
+            forEachController((odrive) => odrive.sendEstop({}))
+            throw { nodeId, error: hearbeat.axisError }
+        }
+    } else {
+    }
+});
+
+
+
 (async () => {
-  await initMotor(1, 2000)
-  await initMotor(2, 1500)
-  // await initMotor(3)
+    const temperature = await odrive1.endpoints["thermistor0"].get()
+    console.log(temperature)
 
-  for (var i = 0; i < 200; i++) {
-    await sendMessage(1, { id: PacketType.AbsoluteMotionAxis, absAxis: (0x2000 / 360) * 20, accel: 1, speed: 10 })
-    await sendMessage(2, { id: PacketType.AbsoluteMotionAxis, absAxis: (0x2000 / 360) * 20, accel: 1, speed: 10 })
-    // await sendMessage(1, { id: PacketType.AbsoluteMotionAxis, absAxis: 0x2000 * 4, accel: 10, speed: 30 })
-    // await sendMessage(2, { id: PacketType.AbsoluteMotionAxis, absAxis: 0x2000 * 20, accel: 20, speed: 30 })
-    // await sendMessage(1, { id: PacketType.AbsoluteMotionAxis, absAxis: -5000, accel: 20, speed: 40 })
-    // await sendMessage(2, { id: PacketType.AbsoluteMotionAxis, absAxis: 1000, accel: 1, speed: 1 })
-    await sleep(1000);
-    await sendMessage(1, { id: PacketType.AbsoluteMotionAxis, absAxis: -(0x2000 / 360) * 20, accel: 1, speed: 10 })
-    await sendMessage(2, { id: PacketType.AbsoluteMotionAxis, absAxis: -(0x2000 / 360) * 20, accel: 1, speed: 10 })
-    // await sendMessage(1, { id: PacketType.AbsoluteMotionAxis, absAxis: -0x2000 * 4, accel: 10, speed: 30 })
-    // await sendMessage(2, { id: PacketType.AbsoluteMotionAxis, absAxis: -0x2000 * 20, accel: 10, speed: 30 })
-    // await sendMessage(1, { id: PacketType.AbsoluteMotionAxis, absAxis: 5000, accel: 20, speed: 40 })
-    // await sendMessage(2, { id: PacketType.AbsoluteMotionAxis, absAxis: -1000, accel: 1, speed: 1 })
-    await sleep(1000);
-  }
-  // await sendMessage(1, { endlimit: false, endstop: false, homeDir: 'ccw', homeSpeed: 2000, id: PacketType.SetHome });
-  // await sendMessage(2, { endlimit: false, endstop: false, homeDir: 'ccw', homeSpeed: 400, id: PacketType.SetHome });
-  // await sendMessage(3, { endlimit: false, endstop: false, homeDir: 'ccw', homeSpeed: 400, id: PacketType.SetHome });
 
-  console.log("All messages sent and handled.");
+    forEachController((odrive) => odrive.sendClearErrors({ identify: 0 }))
+    forEachController(initOdrive)
+    // forEachController(async (odrive) => {
+    odrive2.sendSetAxisState({ axisRequestedState: "CLOSED_LOOP_CONTROL" })
+    odrive2.sendSetControllerMode({ controlMode: 'POSITION_CONTROL', inputMode: 'POS_FILTER' })
+    await odrive2.expect(Packets.Heartbeat, (heartbeat) => heartbeat.axisState === 'CLOSED_LOOP_CONTROL', 'Axis not in idle')
+    for (let i = 0; i < 200; i++) {
+        odrive2.sendSetInputPos({ inputPos: 415, torqueFf: 0, velFf: 0 })
+        await odrive2.expect(Packets.GetEncoderEstimates, (encoder) => Math.abs(encoder.posEstimate - 415) < 0.05, 'Did not go to trajectory', 10000)
+        odrive2.sendSetInputPos({ inputPos: 420, torqueFf: 0, velFf: 0 })
+        await odrive2.expect(Packets.GetEncoderEstimates, (encoder) => Math.abs(encoder.posEstimate - 420) < 0.05, 'Did not go to trajectory', 10000)
+        console.log(await odrive2.endpoints["axis0.pos_estimate"].get(), await odrive2.endpoints["axis0.controller.input_pos"].get())
+    }
+    // })
 })();
+
+
+process.on('SIGINT', function () {
+    forEachController((odrive) => odrive.sendEstop({}))
+});
