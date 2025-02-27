@@ -31,6 +31,8 @@ const initOdrive = async (odrive: Odrive) => {
     odrive.endpoints['axis0.trap_traj.config.vel_limit'].set(4)
     odrive.endpoints['axis0.trap_traj.config.accel_limit'].set(10)
     odrive.endpoints['axis0.trap_traj.config.decel_limit'].set(10)
+    odrive.endpoints['axis0.controller.config.circular_setpoints'].set(false)
+    odrive.endpoints['axis0.pos_vel_mapper.config.offset_valid'].set(false)
 }
 
 const currents = [10, 5, 5]
