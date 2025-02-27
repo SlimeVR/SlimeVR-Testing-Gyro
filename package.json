@@ -6,13 +6,16 @@
   "scripts": {
     "build": "tsc",
     "gen": "pnpm build && node dist/api-generator/gen-api.js",
-    "start": "pnpm build && node dist/index.js"
+    "start": "pnpm build && node dist/src/index.js",
+    "start:set-home": "pnpm build && node dist/src/set-home.js",
+    "start:tuning": "pnpm build && node dist/src/tuning.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@9.12.2+sha512.22721b3a11f81661ae1ec68ce1a7b879425a1ca5b991c975b074ac220b187ce56c708fe5db69f4c962c989452eee76c82877f4ee80f474cebd61ee13461b6228",
   "dependencies": {
+    "@inquirer/prompts": "^7.3.2",
     "@types/node": "^22.13.1",
     "bit-buffer": "^0.2.5",
     "rxjs": "^7.8.1",

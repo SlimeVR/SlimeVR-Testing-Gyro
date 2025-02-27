@@ -32,20 +32,41 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const can = __importStar(require("socketcan"));
+const home_calibration_json_1 = __importDefault(require("../home-calibration.json"));
 const odrive_api_1 = require("./api-generator/odrive-api");
 const generated_api_1 = require("./generated-api");
+const simulateCircularMotion = true;
 const channel = can.createRawChannel("can0", true);
 channel.start();
 const odriveApi = (0, odrive_api_1.initOdriveApi)(channel);
-const odrive = (0, generated_api_1.apiFunctions)(odriveApi);
-const waitFor = async (node_id, cmd_id, condition, timeout = 2000) => {
-    return (0, odrive_api_1.waitForCondition)(odriveApi, generated_api_1.inboundPacketsMap, node_id, cmd_id, condition, timeout);
+const odrive1 = (0, generated_api_1.apiFunctions)(odriveApi, 1);
+const odrive2 = (0, generated_api_1.apiFunctions)(odriveApi, 2);
+const odrive3 = (0, generated_api_1.apiFunctions)(odriveApi, 3);
+const odrives = [odrive1, odrive2, odrive3];
+const angles = [0, 0, 0];
+home_calibration_json_1.default[1] += 0.5;
+const sleep = (time) => new Promise(resolve => setTimeout(() => resolve(true), time));
+const forEachController = async (call) => {
+    for (const odrive of odrives) {
+        await call(odrive);
+    }
 };
-const expect = async (node_id, cmd_id, condition, error, timeout = 2000) => {
-    if (!await waitFor(node_id, cmd_id, condition, timeout))
-        throw error;
+const currentLimit = (odrive, current) => {
+    odrive.endpoints['config.dc_max_positive_current'].set(current);
+    odrive.endpoints['config.dc_max_negative_current'].set(-12);
+};
+const initOdrive = async (odrive) => {
+    odrive.endpoints['axis0.config.can.encoder_msg_rate_ms'].set(10);
+    odrive.endpoints['axis0.config.motor.phase_resistance'].set(0.037);
+    odrive.endpoints['axis0.controller.config.vel_limit'].set(3);
+    odrive.endpoints['axis0.trap_traj.config.vel_limit'].set(3);
+    odrive.endpoints['axis0.trap_traj.config.accel_limit'].set(10);
+    odrive.endpoints['axis0.trap_traj.config.decel_limit'].set(10);
 };
 channel.addListener('onMessage', (msg) => {
     const cmdId = (0, odrive_api_1.getCmdId)(msg.id);
@@ -57,51 +78,84 @@ channel.addListener('onMessage', (msg) => {
     const res = inPacket(msg.data);
     if (cmdId === generated_api_1.Packets.Heartbeat) {
         const hearbeat = res;
-        if (hearbeat.axisError !== 'NONE')
+        if (hearbeat.axisError !== 'NONE') {
+            forEachController((odrive) => odrive.sendEstop({}));
             throw { nodeId, error: hearbeat.axisError };
+        }
     }
     else {
-        console.log(res);
     }
 });
-const sleep = (time) => new Promise(resolve => setTimeout(() => resolve(true), time));
-const forEachController = async (call) => {
-    for (let i = 0; i < 3; i++) {
-        await call(i + 1);
-    }
+const goToRaw = async (odrive, encoder_raw, timeout = 2000) => {
+    odrive.sendSetInputPos({ inputPos: encoder_raw, torqueFf: 0, velFf: 0 });
+    await odrive.expect(generated_api_1.Packets.GetEncoderEstimates, (encoder) => Math.abs(encoder.posEstimate - encoder_raw) % (Math.PI * 2) < 0.05, `Did not go to rot (raw), expected ${encoder_raw}`, timeout);
 };
+const goToAngle = async (axis, angle) => {
+    if (simulateCircularMotion) {
+        const currentAngle = angles[axis] % (Math.PI * 2);
+        const angleDiff = angle - angles[axis];
+        if (angleDiff >= Math.PI) {
+            const targetAngle = angle - Math.PI;
+            angle = currentAngle + targetAngle - angleDiff;
+        }
+        console.log('Axis %d going to %d', axis, angle);
+    }
+    await goToRaw(odrives[axis], angle / (Math.PI * 2) + home_calibration_json_1.default[0], 10000);
+};
+const goToAngles = async ({ x, y, z }) => {
+    await Promise.all([
+        goToAngle(2, z),
+        goToAngle(1, y),
+        goToAngle(0, x)
+    ]);
+};
+const goToHome = async () => {
+    await Promise.all(odrives.map((odrive, index) => goToRaw(odrive, home_calibration_json_1.default[index], 10_000)));
+    angles[0] = 0;
+    angles[1] = 0;
+    angles[2] = 0;
+};
+const degToRad = (degrees) => (degrees * Math.PI) / 180;
 (async () => {
-    // odrive.sendSetControllerMode(1, { controlMode: 'POSITION_CONTROL', inputMode: 'PASSTHROUGH' });
-    // odrive.sendSetAxisState(1, { axisRequestedState: "ENCODER_INDEX_SEARCH" })
-    // await expect(1, Packets.Heartbeat, (hearbeat) => hearbeat.axisState === 'IDLE' && hearbeat.procedureResult === 'SUCCESS', 'Encoder calibration', 20_000)
-    // odrive.sendSetAxisState(1, { axisRequestedState: "CLOSED_LOOP_CONTROL" })
-    // await expect(1, Packets.Heartbeat, (hearbeat) => hearbeat.axisState === 'CLOSED_LOOP_CONTROL', 'Not in closed loop')
-    // odrive.sendSetAxisState(1, { axisRequestedState: "IDLE" })
-    // const newPos = Math.random() * (Math.PI * 2);
-    // odrive.sendSetInputVel(1, { inputVel: 1, inputTorqueFf: 0 })
-    // odrive.sendSetAbsolutePosition(1, { position: newPos })
-    // await expect(1, Packets.Heartbeat, (hearbeat) => hearbeat.procedureResult === 'SUCCESS', 'trajectory not done')
-    // console.log('DONE')
-    // throw 'end'
-    forEachController((node_id) => {
-        odrive.sendClearErrors(node_id, { identify: 0 });
-    });
-    await forEachController(async (node_id) => {
-        odrive.sendSetControllerMode(node_id, { controlMode: 'VELOCITY_CONTROL', inputMode: 'PASSTHROUGH' });
-        odrive.sendSetAxisState(node_id, { axisRequestedState: "IDLE" });
-        await expect(node_id, generated_api_1.Packets.Heartbeat, (hearbeat) => hearbeat.axisState === 'IDLE', 'Not in idle');
-    });
-    // await forEachController(async (node_id) => {
-    //     odrive.sendSetControllerMode(node_id, { controlMode: 'VELOCITY_CONTROL', inputMode: 'PASSTHROUGH' });
-    //     odrive.sendSetAxisState(node_id, { axisRequestedState: "CLOSED_LOOP_CONTROL" })
-    //     await expect(node_id, Packets.Heartbeat, (hearbeat) => hearbeat.axisState === 'CLOSED_LOOP_CONTROL', 'Not in closed loop')
-    // })
-    // forEachController((node_id) => {
-    //     odrive.sendSetInputVel(node_id, { inputVel: 0.5, inputTorqueFf: 0 })
-    // })
-    // await sleep(5000)
-    // forEachController((node_id) => {
-    //     odrive.sendSetInputVel(node_id, { inputVel: 0, inputTorqueFf: 0 })
-    //     odrive.sendSetAxisState(node_id, { axisRequestedState: "IDLE" })
-    // })
+    forEachController((odrive) => odrive.sendClearErrors({ identify: 0 }));
+    forEachController(initOdrive);
+    currentLimit(odrive1, 7);
+    currentLimit(odrive2, 7);
+    currentLimit(odrive3, 7);
+    await Promise.all(odrives.map(async (odrive) => {
+        odrive.sendSetAxisState({ axisRequestedState: "ENCODER_INDEX_SEARCH" });
+        await odrive.expect(generated_api_1.Packets.Heartbeat, (heartbeat) => heartbeat.procedureResult === 'SUCCESS', 'Did not finish encoder index', 10_000);
+        odrive.sendSetControllerMode({ controlMode: 'POSITION_CONTROL', inputMode: 'TRAP_TRAJ' });
+        odrive.sendSetAxisState({ axisRequestedState: "CLOSED_LOOP_CONTROL" });
+        await odrive.expect(generated_api_1.Packets.Heartbeat, (heartbeat) => heartbeat.axisState === 'CLOSED_LOOP_CONTROL', 'Axis not in closed loop', 10_000);
+    }));
+    console.log('Going home~');
+    await goToHome();
+    console.log('Having fun~');
+    for (let i = 0; i < 200; i++) {
+        await sleep(1000);
+        await goToAngles({ x: degToRad(90), y: degToRad(90), z: degToRad(0) });
+        await sleep(1000);
+        await goToAngles({ x: degToRad(90), y: degToRad(90), z: degToRad(90) });
+        await sleep(1000);
+        await goToAngles({ x: degToRad(90), y: degToRad(90), z: degToRad(180) });
+        await sleep(1000);
+        await goToAngles({ x: degToRad(90), y: degToRad(90), z: degToRad(270) });
+    }
+    /*
+    for (let i = 0; i < 200; i++) {
+        await goToHome();
+        await sleep(1000)
+        await goToAngles({ x: degToRad(90), y: degToRad(90), z: degToRad(90) })
+        await sleep(1000)
+
+    }*/
+    console.log('DONE');
 })();
+process.on('SIGINT', function () {
+    forEachController((odrive) => odrive.sendEstop({}));
+});
+process.on('unhandledRejection', (error, p) => {
+    console.error(error);
+    forEachController((odrive) => odrive.sendEstop({}));
+});

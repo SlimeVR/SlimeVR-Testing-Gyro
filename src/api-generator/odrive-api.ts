@@ -88,37 +88,55 @@ export function valueToEndpointType(value: number, type: 'float' | 'uint' | 'int
 }
 
 export function typedToEndpoint(value: number | boolean, type: 'float' | 'uint' | 'int' | 'boolean') {
+    if (value === 0)
+        return 0;
     if (typeof value === 'boolean')
         return value ? 1 : 0;
     if (typeof value === 'number' && type === 'float') {
         var bytes = 0;
-        switch (value) {
-            case Number.POSITIVE_INFINITY: bytes = 0x7F800000; break;
-            case Number.NEGATIVE_INFINITY: bytes = 0xFF800000; break;
-            case +0.0: bytes = 0x40000000; break;
-            case -0.0: bytes = 0xC0000000; break;
-            default:
-                if (Number.isNaN(value)) { bytes = 0x7FC00000; break; }
 
-                if (value <= -0.0) {
-                    bytes = 0x80000000;
-                    value = -value;
+        switch (value) {
+            case Number.POSITIVE_INFINITY:
+                bytes = 0x7F800000;
+                break;
+            case Number.NEGATIVE_INFINITY:
+                bytes = 0xFF800000;
+                break;
+            case +0.0:
+                bytes = 0x00000000; // Correct zero representation
+                break;
+            case -0.0:
+                bytes = 0x80000000; // Correct negative zero representation
+                break;
+            default:
+                if (Number.isNaN(value)) {
+                    bytes = 0x7FC00000;
+                    break;
                 }
 
-                var exponent = Math.floor(Math.log(value) / Math.log(2));
-                var significand = ((value / Math.pow(2, exponent)) * 0x00800000) | 0;
+                let sign = value < 0 ? 0x80000000 : 0; // Extract sign bit
+                value = Math.abs(value);
 
-                exponent += 127;
+                let exponent = Math.floor(Math.log2(value));
+                let significand = Math.round((value / Math.pow(2, exponent) - 1) * 0x800000);
+
+                exponent += 127; // Convert to biased exponent
                 if (exponent >= 0xFF) {
                     exponent = 0xFF;
                     significand = 0;
-                } else if (exponent < 0) exponent = 0;
+                } else if (exponent < 0) {
+                    exponent = 0;
+                    significand = 0;
+                }
 
-                bytes = bytes | (exponent << 23);
-                bytes = bytes | (significand & ~(-1 << 23));
+                bytes = sign | (exponent << 23) | (significand & 0x7FFFFF);
                 break;
         }
-        return bytes;
+
+        return bytes >>> 0;
+    }
+    if (typeof value === 'number' && type === 'float') {
+        return value << 0
     }
     return value;
 }

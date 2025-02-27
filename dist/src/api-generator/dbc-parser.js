@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseDBC = parseDBC;
 const messageRegex = /^BO_ (\d+) (\w+): (\d+) (\w+)/;
-const signalRegex = /^ SG_ (\w+) : (\d+)\|(\d+)@(\d+)([+-]) \(([-+]?[0-9]*\.?[0-9]+),([-+]?[0-9]*\.?[0-9]+)\) \[([-+]?[0-9]*\.?[0-9]+)\|([-+]?[0-9]*\.?[0-9]+)\] "(.*?)"/;
+const signalRegex = /^ SG_ (\w+)(?: M)? : (\d+)\|(\d+)@(\d+)([+-]) \(([-+]?[0-9]*\.?[0-9]+),([-+]?[0-9]*\.?[0-9]+)\) \[([-+]?[0-9]*\.?[0-9]+)\|([-+]?[0-9]*\.?[0-9]+)\] "(.*?)"/;
 const messageCommentRegex = /^CM_ BO_ (\d+) "(.*?)"/;
 const signalCommentRegex = /^CM_ SG_ (\d+) (\w+) "(.*?)"/;
 const valueRegex = /^VAL_ (\d+) (\w+) ((?:\d+ "[^"]*" )+)/;

@@ -1,31 +1,32 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getNodeId = exports.getCmdId = void 0;
+exports.expectResponse = expectResponse;
 exports.waitForResponse = waitForResponse;
 exports.waitForCondition = waitForCondition;
+exports.valueToEndpointType = valueToEndpointType;
+exports.typedToEndpoint = typedToEndpoint;
 exports.initOdriveApi = initOdriveApi;
 const rxjs_1 = require("rxjs");
 const getCmdId = (canid) => canid & 0x1F;
 exports.getCmdId = getCmdId;
 const getNodeId = (canid) => canid >> 5;
 exports.getNodeId = getNodeId;
-async function waitForResponse(api, inboundPacketsMap, can_id) {
-    try {
-        const response = await (0, rxjs_1.firstValueFrom)(api.responseSubject.pipe((0, rxjs_1.filter)((msg) => msg.id === can_id), (0, rxjs_1.take)(1), (0, rxjs_1.timeout)(2000), (0, rxjs_1.catchError)(() => (0, rxjs_1.throwError)(() => new Error(`Timeout waiting for response`)))));
-        const cmdId = (0, exports.getCmdId)(response.id);
-        const inPacket = inboundPacketsMap[cmdId];
-        if (!inPacket) {
-            throw 'invalid id';
-        }
-        return inPacket(response.data);
+async function expectResponse(api, inboundPacketsMap, can_id) {
+    const response = await (0, rxjs_1.firstValueFrom)(api.responseSubject.pipe((0, rxjs_1.filter)((msg) => msg.id === can_id), (0, rxjs_1.take)(1), (0, rxjs_1.timeout)(2000), (0, rxjs_1.catchError)(() => (0, rxjs_1.throwError)(() => new Error(`Timeout waiting for response`)))));
+    const cmdId = (0, exports.getCmdId)(response.id);
+    const inPacket = inboundPacketsMap[cmdId];
+    if (!inPacket) {
+        throw 'invalid id';
     }
-    catch (err) {
-        console.error(err);
-        return null;
-    }
+    return inPacket(response.data);
 }
 ;
-async function waitForCondition(api, inboundPacketsMap, node_id, cmd_id, condition, t) {
+async function waitForResponse(api, inboundPacketsMap, can_id) {
+    return expectResponse(api, inboundPacketsMap, can_id).catch(() => null);
+}
+;
+async function waitForCondition(api, inboundPacketsMap, node_id, cmd_id, condition, t = 2000) {
     try {
         const can_id = node_id << 5 | cmd_id;
         return await (0, rxjs_1.firstValueFrom)(api.responseSubject.pipe((0, rxjs_1.filter)((msg) => msg.id === can_id), (0, rxjs_1.map)((msg) => {
@@ -38,9 +39,78 @@ async function waitForCondition(api, inboundPacketsMap, node_id, cmd_id, conditi
         }), (0, rxjs_1.filter)((packet) => condition(packet)), (0, rxjs_1.take)(1), (0, rxjs_1.timeout)(t), (0, rxjs_1.catchError)(() => (0, rxjs_1.throwError)(() => new Error(`Timeout waiting for response`)))));
     }
     catch (err) {
-        console.error(err);
         return null;
     }
+}
+function valueToEndpointType(value, type) {
+    if (type === 'float') {
+        var sign = (value & 0x80000000) ? -1 : 1;
+        var exponent = ((value >> 23) & 0xFF) - 127;
+        var significand = (value & ~(-1 << 23));
+        if (exponent == 128)
+            return sign * ((significand) ? Number.NaN : Number.POSITIVE_INFINITY);
+        if (exponent == -127) {
+            if (significand == 0)
+                return sign * 0.0;
+            exponent = -126;
+            significand /= (1 << 22);
+        }
+        else
+            significand = (significand | (1 << 23)) / (1 << 23);
+        return sign * significand * Math.pow(2, exponent);
+    }
+    if (type === 'boolean') {
+        return value === 1 ? true : false;
+    }
+    return value;
+}
+function typedToEndpoint(value, type) {
+    if (value === 0)
+        return 0;
+    if (typeof value === 'boolean')
+        return value ? 1 : 0;
+    if (typeof value === 'number' && type === 'float') {
+        var bytes = 0;
+        switch (value) {
+            case Number.POSITIVE_INFINITY:
+                bytes = 0x7F800000;
+                break;
+            case Number.NEGATIVE_INFINITY:
+                bytes = 0xFF800000;
+                break;
+            case +0.0:
+                bytes = 0x00000000; // Correct zero representation
+                break;
+            case -0.0:
+                bytes = 0x80000000; // Correct negative zero representation
+                break;
+            default:
+                if (Number.isNaN(value)) {
+                    bytes = 0x7FC00000;
+                    break;
+                }
+                let sign = value < 0 ? 0x80000000 : 0; // Extract sign bit
+                value = Math.abs(value);
+                let exponent = Math.floor(Math.log2(value));
+                let significand = Math.round((value / Math.pow(2, exponent) - 1) * 0x800000);
+                exponent += 127; // Convert to biased exponent
+                if (exponent >= 0xFF) {
+                    exponent = 0xFF;
+                    significand = 0;
+                }
+                else if (exponent < 0) {
+                    exponent = 0;
+                    significand = 0;
+                }
+                bytes = sign | (exponent << 23) | (significand & 0x7FFFFF);
+                break;
+        }
+        return bytes >>> 0;
+    }
+    if (typeof value === 'number' && type === 'float') {
+        return value << 0;
+    }
+    return value;
 }
 function initOdriveApi(channel) {
     const message$ = new rxjs_1.Observable((subscriber) => {
