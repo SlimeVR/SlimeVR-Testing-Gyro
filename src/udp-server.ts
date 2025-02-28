@@ -1,4 +1,4 @@
-import { createSocket } from "dgram";
+import { createSocket, RemoteInfo } from "dgram";
 import { ReturnTypeOfMethod } from 'strict-event-emitter-types/types/src/index';
 
 export type Packet<T> = Readonly<T>;
@@ -202,21 +202,22 @@ export const PacketRotation2Builder: PacketBuilder<PacketType.PACKET_ROTATION_2,
 export type PacketRotationData = Packet<{
     sensorId: number;
     dataType: number;
-    rotation: { x: number; y: number; z: number };
+    rotation: { x: number; y: number; z: number, w: number };
     calibrationInfo: number;
 }>;
 export const PacketRotationDataBuilder: PacketBuilder<PacketType.PACKET_ROTATION_DATA, PacketRotationData> = {
     id: PacketType.PACKET_ROTATION_DATA,
-    writeSize: 15,
+    writeSize: 19,
     read: (buff) => ({
         sensorId: buff.readInt8(0),
         dataType: buff.readInt8(1),
         rotation: {
             x: buff.readFloatBE(2),
             y: buff.readFloatBE(6),
-            z: buff.readFloatBE(10)
+            z: buff.readFloatBE(10),
+            w: buff.readFloatBE(14)
         },
-        calibrationInfo: buff.readInt8(11)
+        calibrationInfo: buff.readInt8(18)
     }),
     write: (buff, data) => {
         buff.writeInt8(data.sensorId, 0);
@@ -224,7 +225,8 @@ export const PacketRotationDataBuilder: PacketBuilder<PacketType.PACKET_ROTATION
         buff.writeFloatBE(data.rotation.x, 2);
         buff.writeFloatBE(data.rotation.y, 6);
         buff.writeFloatBE(data.rotation.z, 10);
-        buff.writeInt8(data.calibrationInfo, 11);
+        buff.writeFloatBE(data.rotation.w, 14);
+        buff.writeInt8(data.calibrationInfo, 18);
     }
 };
 
@@ -366,50 +368,73 @@ export const writePacket = <ID extends PacketType, T, W, B extends PacketBuilder
 
 type SendPacketFn = <ID extends PacketType, T, W, B extends PacketBuilder<ID, T, W>>(
     packetBuilder: B,
-    packetNum: bigint,
-    data: W
+    data: W,
+    address: string,
+    port: number
 ) => void;
 
-
-const socket = createSocket('udp4');
-
-socket.on('error', (err) => {
-    console.error(err, 'UDP Socket Error');
-});
-
-socket
-    .once('listening', () => {
-        console.info('UDP Socket listening');
-    })
-    .bind(6969, '0.0.0.0');
+export type PacketListener<T extends InboundPackets> = {
+    onPacket: (rinfo: RemoteInfo, packet: PacketReturnType<T>) => void
+};
 
 
+export function createSever(port: number, ip: string) {
+    const socket = createSocket('udp4');
+    var packetNumber = BigInt(0);
 
-// const connections_context = {
+    socket.on('error', (err) => {
+        console.error(err, 'UDP Socket Error');
+    });
 
-// }
+    socket
+        .once('listening', () => {
+            console.info('UDP Socket listening');
+        })
+        .bind(port, ip);
 
+    const sendPacket: SendPacketFn = (packetBuilder, data, address, port) => {
+        const buff = writePacket(packetBuilder, packetNumber++, data);
+        socket.send(buff, port, address);
+    }
 
-const sendPacket: SendPacketFn = (packetBuilder, packetNum, data) => {
-    const buff = writePacket(packetBuilder, packetNum, data);
-    // socket.send(buff, port, address);
+    interface PacketListenersArray {
+        [packetId: number]: PacketListener<any>[]
+    }
+
+    const packetListeners: PacketListenersArray = []
+
+    const onPacketReceived = <T extends InboundPackets, K = T['id']>(id: number, listener: PacketListener<T>) => {
+        if (!packetListeners[id])
+            packetListeners[id] = []
+        packetListeners[id][packetListeners[id].length] = listener;
+    }
+
+    socket.on('message', (msg, rinfo) => {
+        const packetId: PacketType = msg.readInt32BE(0);
+        const packetNumber = msg.readBigInt64BE(4);
+
+        const packetBuilder = inboundPacketBuilders[packetId];
+        if (!packetBuilder) {
+            //console.warn({ hex: msg.toString('hex'), bytes: msg.length, packetId }, `Received unknown packet`);
+            return;
+        }
+        const { id, read } = packetBuilder;
+        const data = read(msg.subarray(12));
+
+        if (packetListeners[packetId])
+            packetListeners[packetId].forEach((listener) => listener.onPacket(rinfo, data))
+
+        //console.debug({ id: PacketType[packetId] || packetId, packetNumber, payload: data }, 'received packet');
+    });
+
+    process.on('SIGINT', async () => {
+        socket.close();
+    });
+
+    return {
+        socket,
+        sendPacket,
+        onPacketReceived,
+    }
 }
 
-socket.on('message', (msg, rinfo) => {
-    const packetId: PacketType = msg.readInt32BE(0);
-    const packetNumber = msg.readBigInt64BE(4);
-
-    const packetBuilder = inboundPacketBuilders[packetId];
-    if (!packetBuilder) {
-        console.warn({ hex: msg.toString('hex'), bytes: msg.length, packetId }, `Received unknown packet`);
-        return;
-    }
-    const { id, read } = packetBuilder;
-    const data = read(msg.subarray(12));
-
-    console.debug({ id: PacketType[packetId] || packetId, packetNumber, payload: data }, 'received packet');
-});
-
-process.on('SIGINT', async () => {
-    socket.close();
-});

@@ -11,18 +11,30 @@ importers:
       '@inquirer/prompts':
         specifier: ^7.3.2
         version: 7.3.2(@types/node@22.13.4)
+      '@math.gl/core':
+        specifier: ^4.1.0
+        version: 4.1.0
+      '@math.gl/types':
+        specifier: ^4.1.0
+        version: 4.1.0
       '@types/node':
         specifier: ^22.13.1
         version: 22.13.4
       bit-buffer:
         specifier: ^0.2.5
         version: 0.2.5
+      math.gl:
+        specifier: ^4.1.0
+        version: 4.1.0
       rxjs:
         specifier: ^7.8.1
         version: 7.8.1
       socketcan:
         specifier: ^4.0.5
         version: 4.0.5
+      strict-event-emitter-types:
+        specifier: ^2.0.0
+        version: 2.0.0
       ts-creator:
         specifier: ^1.2.5
         version: 1.2.5
@@ -160,6 +172,12 @@ packages:
   '@isaacs/fs-minipass@4.0.1':
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
     engines: {node: '>=18.0.0'}
+
+  '@math.gl/core@4.1.0':
+    resolution: {integrity: sha512-FrdHBCVG3QdrworwrUSzXIaK+/9OCRLscxI2OUy6sLOHyHgBMyfnEGs99/m3KNvs+95BsnQLWklVfpKfQzfwKA==}
+
+  '@math.gl/types@4.1.0':
+    resolution: {integrity: sha512-clYZdHcmRvMzVK5fjeDkQlHUzXQSNdZ7s4xOqC3nJPgz4C/TZkUecTo9YS4PruZqtDda/ag4erndP0MIn40dGA==}
 
   '@npmcli/agent@3.0.0':
     resolution: {integrity: sha512-S79NdEgDQd/NGCay6TCoVzXSj74skRZIKJcpJjC5lOq34SZzyI6MqtiiWoiVWoVrTcGjNeC4ipbh1VIHlpfF5Q==}
@@ -429,6 +447,9 @@ packages:
     resolution: {integrity: sha512-bJzx6nMoP6PDLPBFmg7+xRKeFZvFboMrGlxmNj9ClvX53KrmvM5bXFXEWjbz4cz1AFn+jWJ9z/DJSz7hrs0w3w==}
     engines: {node: '>=6'}
 
+  math.gl@4.1.0:
+    resolution: {integrity: sha512-FtvCJuuAlvn4358e2SkepTv2gnV7VTvu0y/hwkkjS/urDk+nY9x/4Tsn19LmaJl1wqKaqn+QFZhbnjAsuMOkWA==}
+
   mem@4.3.0:
     resolution: {integrity: sha512-qX2bG48pTqYRVmDB37rn/6PT7LcR8T7oAX3bf99u1Tt1nzxYfxkgqDwUwolPlXweM0XzBOBFzSx4kfp7KP1s/w==}
     engines: {node: '>=6'}
@@ -671,6 +692,9 @@ packages:
   ssri@12.0.0:
     resolution: {integrity: sha512-S7iGNosepx9RadX82oimUkvr0Ct7IjJbEbs4mJcTxst8um95J3sDYU1RBEOvdu6oL1Wek2ODI5i4MAw+dZ6cAQ==}
     engines: {node: ^18.17.0 || >=20.5.0}
+
+  strict-event-emitter-types@2.0.0:
+    resolution: {integrity: sha512-Nk/brWYpD85WlOgzw5h173aci0Teyv8YdIAEtV+N88nDB0dLlazZyJMIsN6eo1/AR61l+p6CJTG1JIyFaoNEEA==}
 
   string-width@1.0.2:
     resolution: {integrity: sha512-0XsVpQLnVCXHJfyEs8tC0zpTVIr5PKKsQtkT29IwupnPTjtPmQ3xT/4yCREF9hYkV/3M3kzcUTSAZT6a6h81tw==}
@@ -942,6 +966,12 @@ snapshots:
   '@isaacs/fs-minipass@4.0.1':
     dependencies:
       minipass: 7.1.2
+
+  '@math.gl/core@4.1.0':
+    dependencies:
+      '@math.gl/types': 4.1.0
+
+  '@math.gl/types@4.1.0': {}
 
   '@npmcli/agent@3.0.0':
     dependencies:
@@ -1216,6 +1246,10 @@ snapshots:
     dependencies:
       p-defer: 1.0.0
 
+  math.gl@4.1.0:
+    dependencies:
+      '@math.gl/core': 4.1.0
+
   mem@4.3.0:
     dependencies:
       map-age-cleaner: 0.1.3
@@ -1429,6 +1463,8 @@ snapshots:
   ssri@12.0.0:
     dependencies:
       minipass: 7.1.2
+
+  strict-event-emitter-types@2.0.0: {}
 
   string-width@1.0.2:
     dependencies:
