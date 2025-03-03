@@ -41,8 +41,7 @@ const home_calibration_json_1 = __importDefault(require("../home-calibration.jso
 const odrive_api_1 = require("./api-generator/odrive-api");
 const generated_api_1 = require("./generated-api");
 const udp_server_1 = require("./udp-server");
-const _3dmath_1 = require("./3dmath");
-const node_util_1 = __importDefault(require("node:util"));
+const three_1 = require("three");
 const simulateCircularMotion = true;
 const targetPrecision = 0.01;
 const channel = can.createRawChannel("can0", true);
@@ -110,17 +109,22 @@ const sendToRaw = (axis, encoder_raw) => {
 };
 const goToAngle = async (axis, angle, wait = true) => {
     var circularPosition = angle / (Math.PI * 2);
+    if (circularPosition < 0 || circularPosition > 1) {
+        console.log('Axis %d can\'t go to angle %d (%d), violates circularity at %d', axis, angle.toFixed(4), radToDeg(angle).toFixed(2), circularPosition.toFixed(4));
+        return;
+    }
     if (simulateCircularMotion) {
         const currentAngle = wrapToCircle(positions[axis]);
         var diff = circularPosition - currentAngle;
         if (diff < -0.5)
             diff += 1;
+        console.log('Axis %d going to %s (%s), target pos %s', axis, angle.toFixed(2), radToDeg(angle).toFixed(2), circularPosition.toFixed(4));
         circularPosition = positions[axis] + diff;
     }
-    if (wait)
-        await goToRaw(axis, circularPosition, 10000);
-    else
-        sendToRaw(axis, circularPosition);
+    // if (wait)
+    //    await goToRaw(axis, circularPosition, 10000)
+    //else
+    //     sendToRaw(axis, circularPosition)
 };
 const goToAngles = async ({ x, y, z }, wait = true) => {
     await Promise.all([
@@ -135,8 +139,9 @@ const goToHome = async () => {
 };
 const degToRad = (degrees) => (degrees * Math.PI) / 180;
 const radToDeg = (rad) => rad * 180 / Math.PI;
-const AXIS_OFFSET = _3dmath_1.Quaternion.fromRotationVector(-Math.PI / 2, 0, 0);
+const AXIS_OFFSET = new three_1.Quaternion().setFromAxisAngle({ x: -1, y: 0, z: 0 }, Math.PI / 2);
 (async () => {
+    //console.log(AXIS_OFFSET)
     forEachController((odrive) => odrive.sendClearErrors({ identify: 0 }));
     forEachController(initOdrive);
     currentLimit(odrive1, 8);
@@ -158,13 +163,14 @@ const AXIS_OFFSET = _3dmath_1.Quaternion.fromRotationVector(-Math.PI / 2, 0, 0);
         onPacket: (rinfo, packet) => {
             if (packet.sensorId == 0 && packet.dataType == 1) {
                 const time = Date.now();
-                if (time - lastUpdateTime > 50) {
+                if (time - lastUpdateTime > 100) {
                     lastUpdateTime = time;
-                    const quat = new _3dmath_1.Quaternion(packet.rotation.w, packet.rotation.x, packet.rotation.y, packet.rotation.z);
-                    const ofseted = AXIS_OFFSET.timesQuat(quat);
-                    const euler = ofseted.toEulerAngles(_3dmath_1.EulerOrder.XYZ);
-                    console.log(node_util_1.default.format('Angles: %5.2d, %5.2d, %5.2d', radToDeg(euler.x), radToDeg(euler.y), radToDeg(euler.z)));
-                    //goToAngles({x: euler.x, y: euler.y, z: euler.z}, false)
+                    const quat = new three_1.Quaternion(packet.rotation.x, packet.rotation.y, packet.rotation.z, packet.rotation.w);
+                    const ofseted = AXIS_OFFSET.clone().multiply(quat);
+                    const euler = new three_1.Euler().setFromQuaternion(ofseted);
+                    console.log('Angles: %s, %s, %s', radToDeg(euler.x).toFixed(2), radToDeg(euler.y).toFixed(2), radToDeg(euler.z).toFixed(2));
+                    //goToAngles({ x: euler.y, y: euler.z, z: euler.x }, false)
+                    goToAngle(0, euler.y + Math.PI, false);
                 }
             }
         }

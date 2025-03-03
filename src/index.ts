@@ -5,9 +5,7 @@ import home_calibration from '../home-calibration.json'
 import { getCmdId, getNodeId, initOdriveApi } from "./api-generator/odrive-api"
 import { apiFunctions, GetEncoderEstimatesMessage, HeartbeatMessage, inboundPacketsMap, Packets } from "./generated-api"
 import { createSever, PacketHandshakeBuilder, PacketReturnType, PacketRotationData, PacketRotationDataBuilder } from "./udp-server"
-import { Quaternion, EulerAngles, EulerOrder } from "./3dmath"
-
-import util  from "node:util"
+import { Quaternion, Euler } from 'three'
 
 
 const simulateCircularMotion = true
@@ -88,17 +86,22 @@ const sendToRaw = (axis: number, encoder_raw: number) => {
 
 const goToAngle = async (axis: 0 | 1 | 2, angle: number, wait = true) => {
     var circularPosition = angle / (Math.PI * 2)
+    if(circularPosition < 0 || circularPosition > 1) {
+        console.log('Axis %d can\'t go to angle %d (%d), violates circularity at %d', axis, angle.toFixed(4), radToDeg(angle).toFixed(2), circularPosition.toFixed(4))
+        return
+    }
     if (simulateCircularMotion) {
         const currentAngle = wrapToCircle(positions[axis])
         var diff = circularPosition - currentAngle
-        if(diff < -0.5)
+        if (diff < -0.5)
             diff += 1
+        console.log('Axis %d going to %s (%s), target pos %s', axis, angle.toFixed(2), radToDeg(angle).toFixed(2), circularPosition.toFixed(4))
         circularPosition = positions[axis] + diff
     }
-    if(wait)
-        await goToRaw(axis, circularPosition, 10000)
-    else
-        sendToRaw(axis, circularPosition)
+   // if (wait)
+    //    await goToRaw(axis, circularPosition, 10000)
+    //else
+   //     sendToRaw(axis, circularPosition)
 }
 
 const goToAngles = async ({ x, y, z }: { x: number; y: number; z: number }, wait = true) => {
@@ -115,11 +118,12 @@ const goToHome = async () => {
 }
 
 const degToRad = (degrees: number) => (degrees * Math.PI) / 180;
-const radToDeg = (rad: number) => rad * 180 / Math.PI
+const radToDeg = (rad: number) => rad * 180 / Math.PI;
 
-const AXIS_OFFSET = Quaternion.fromRotationVector(-Math.PI / 2, 0, 0);
+const AXIS_OFFSET = new Quaternion().setFromAxisAngle({ x: -1, y: 0, z: 0 }, Math.PI / 2);
 
 (async () => {
+    //console.log(AXIS_OFFSET)
     forEachController((odrive) => odrive.sendClearErrors({ identify: 0 }))
     forEachController(initOdrive)
     currentLimit(odrive1, 8)
@@ -138,29 +142,30 @@ const AXIS_OFFSET = Quaternion.fromRotationVector(-Math.PI / 2, 0, 0);
     const server = createSever(6969, '0.0.0.0');
 
     var lastUpdateTime = Date.now()
-    
+
     server.onPacketReceived<typeof PacketRotationDataBuilder>(PacketRotationDataBuilder.id, {
-        onPacket: (rinfo, packet) =>  {
-            if(packet.sensorId == 0 && packet.dataType == 1) {
+        onPacket: (rinfo, packet) => {
+            if (packet.sensorId == 0 && packet.dataType == 1) {
                 const time = Date.now()
-                if(time - lastUpdateTime > 50) {
+                if (time - lastUpdateTime > 100) {
                     lastUpdateTime = time
-                    const quat = new Quaternion(packet.rotation.w, packet.rotation.x, packet.rotation.y, packet.rotation.z)
-                    const ofseted = AXIS_OFFSET.timesQuat(quat)
-                    const euler = ofseted.toEulerAngles(EulerOrder.XYZ)
-                    console.log(util.format('Angles: %5.2d, %5.2d, %5.2d', radToDeg(euler.x), radToDeg(euler.y), radToDeg(euler.z)))
-                    //goToAngles({x: euler.x, y: euler.y, z: euler.z}, false)
+                    const quat = new Quaternion(packet.rotation.x, packet.rotation.y, packet.rotation.z, packet.rotation.w)
+                    const ofseted = AXIS_OFFSET.clone().multiply(quat)
+                    const euler = new Euler().setFromQuaternion(ofseted)
+                    console.log('Angles: %s, %s, %s', radToDeg(euler.x).toFixed(2), radToDeg(euler.y).toFixed(2), radToDeg(euler.z).toFixed(2))
+                    //goToAngles({ x: euler.y, y: euler.z, z: euler.x }, false)
+                    goToAngle(0, euler.y + Math.PI, false)
                 }
             }
         }
     })
 
     server.onPacketReceived<typeof PacketHandshakeBuilder>(PacketHandshakeBuilder.id, {
-        onPacket: (rinfo, packet) =>  {
+        onPacket: (rinfo, packet) => {
             server.sendPacket(PacketHandshakeBuilder, {} as never, rinfo.address, rinfo.port)
         }
     })
 
-    
+
     console.log('DONE')
 })();
