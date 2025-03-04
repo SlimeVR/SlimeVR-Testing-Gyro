@@ -1,29 +1,19 @@
 {
-  "name": "SlimeVR-Testing-Gyro",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "slimev-test-gyro",
+  "private": true,
   "scripts": {
-    "build": "tsc",
-    "gen": "pnpm build && node dist/api-generator/gen-api.js",
-    "start": "pnpm build && node dist/src/index.js",
-    "start:set-home": "pnpm build && node dist/src/set-home.js",
-    "start:tuning": "pnpm build && node dist/src/tuning.js"
+    "dev": "pnpm --recursive --parallel --filter=!gyro-server dev",
+    "build": "pnpm --recursive --parallel --filter=./apps/* build"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "packageManager": "pnpm@9.12.2+sha512.22721b3a11f81661ae1ec68ce1a7b879425a1ca5b991c975b074ac220b187ce56c708fe5db69f4c962c989452eee76c82877f4ee80f474cebd61ee13461b6228",
-  "dependencies": {
-    "@inquirer/prompts": "^7.3.2",
-    "@types/node": "^22.13.1",
-    "@types/three": "^0.174.0",
-    "bit-buffer": "^0.2.5",
-    "rxjs": "^7.8.1",
-    "socketcan": "^4.0.5",
-    "strict-event-emitter-types": "^2.0.0",
-    "three": "^0.174.0",
-    "ts-creator": "^1.2.5",
-    "typescript": "^5.7.3"
-  }
+  "devDependencies": {
+    "pnpm": "^8.15.4"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "packageManager": "pnpm@9.15.4+sha512.b2dc20e2fc72b3e18848459b37359a32064663e5627a51e4c74b2c29dd8e8e0491483c3abb40789cfd578bf362fb6ba8261b05f0387d76792ed6e23ea3b1b6a0"
 }
