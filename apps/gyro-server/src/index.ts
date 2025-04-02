@@ -30,7 +30,14 @@ const positions = [0, 0, 0]
 const angles = [0, 0, 0]
 const lastSentPosition = [0, 0, 0]
 
+interface AxisState {
+    targetAngle: number,
+    targetDiff: number,
+    targetCircularPosition: number,
+    targetPosition: number
+}
 
+const axisStates: AxisState[] = Array.from({ length: 3 }, () => ({targetAngle: 0, targetDiff: 0, targetCircularPosition: 0, targetPosition: 0}))
 
 type Odrive = typeof odrives[0]
 
@@ -60,7 +67,7 @@ channel.addListener('onMessage', (msg: Message) => {
     const nodeId = getNodeId(msg.id)
     const inPacket = inboundPacketsMap[cmdId as keyof typeof inboundPacketsMap]
     if (!inPacket) {
-        throw 'invalid id'
+        throw 'Invalid packet id ${cmdId}'
     }
     const res = inPacket(msg.data)
     if (cmdId === Packets.Heartbeat) {
@@ -99,11 +106,16 @@ const sendToRaw = (axis: number, encoder_raw: number) => {
     odrive.sendSetInputPos({ inputPos: encoder_raw, torqueFf: 0, velFf: 0 })
 }
 
-const sendData = (str: string) => {
+const updateConsole = () => {
     // TODO Display all 3 axis state
-    process.stdout.clearLine(0);
-    process.stdout.cursorTo(0);
-    process.stdout.write(str);
+    process.stdout.moveCursor(0, -3)
+    for(var axis = 0; axis < 3; ++axis) {
+        process.stdout.cursorTo(0)
+        process.stdout.clearLine(0)
+        process.stdout.write(util.format('Axis %d going to %s (%s), diff %s, target circular pos %s, target absolute pos %s\n',
+            axis, axisStates[axis].targetAngle.toFixed(2), radToDeg(axisStates[axis].targetAngle).toFixed(2),
+            axisStates[axis].targetDiff.toFixed(4), axisStates[axis].targetCircularPosition.toFixed(4), axisStates[axis].targetPosition.toFixed(4)))
+    }
 }
 
 const goToAngle = async (axis: 0 | 1 | 2, angle: number, wait = true) => {
@@ -119,11 +131,12 @@ const goToAngle = async (axis: 0 | 1 | 2, angle: number, wait = true) => {
         if (diff < -0.5)
             diff += 1
         const targetPosition = lastSentPosition[axis] + diff
-        sendData(util.format('Axis %d going to %s (%s), diff %s, target circular pos %s, target absolute pos %s', axis, angle.toFixed(2), radToDeg(angle).toFixed(2), diff.toFixed(4), circularPosition.toFixed(4), targetPosition.toFixed(4)))
-        //console.log('Axis %d going to %s (%s), target pos %s', axis, angle.toFixed(2), radToDeg(angle).toFixed(2), circularPosition.toFixed(4))
+        axisStates[axis] = {targetAngle: angle, targetCircularPosition: circularPosition, targetDiff: diff, targetPosition: targetPosition}
+        updateConsole()
         circularPosition = targetPosition
         lastSentPosition[axis] = targetPosition
     }
+
     if (wait)
         await goToRaw(axis, circularPosition, 10000)
     else
@@ -210,10 +223,7 @@ wsServer.server.on('connection', (socket) => {
                     const quat = new Quaternion(packet.rotation.x, packet.rotation.y, packet.rotation.z, packet.rotation.w)
                     const ofseted = AXIS_OFFSET.clone().multiply(quat)
                     const euler = new Euler().setFromQuaternion(ofseted, "YZX")
-                    //console.log('Angles: %s, %s, %s', radToDeg(euler.x).toFixed(2), radToDeg(euler.y).toFixed(2), radToDeg(euler.z).toFixed(2))
-                    //goToAngles({ x: Math.PI - euler.x, y: 0, z: 0 }, false)
                     goToAngles({ x: Math.PI - euler.x, y: Math.PI - euler.y, z: Math.PI - euler.z }, false)
-                    //goToAngle(0, Math.PI - euler.y, false)
                //}
             }
         }
