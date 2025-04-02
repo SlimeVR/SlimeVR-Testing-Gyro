@@ -9,8 +9,9 @@ import { Quaternion, Euler } from 'three'
 import util from "node:util"
 import { createWebsocketConnection, createWebsocketServer } from "./websockets"
 import { debounce, debounceTime, Subject } from "rxjs"
+import { confirm } from '@inquirer/prompts';
 
-const startGyro = false
+const startGyro = true
 const simulateCircularMotion = true
 const targetPrecision = 0.01
 
@@ -26,6 +27,10 @@ const odrive2 = apiFunctions(odriveApi, 2)
 const odrive3 = apiFunctions(odriveApi, 3)
 const odrives = [odrive1, odrive2, odrive3]
 const positions = [0, 0, 0]
+const angles = [0, 0, 0]
+const lastSentPosition = [0, 0, 0]
+
+
 
 type Odrive = typeof odrives[0]
 
@@ -84,7 +89,7 @@ const goToRaw = async (axis: number, encoder_raw: number, timeout = 2000) => {
         return
     const odrive = odrives[axis]
     odrive.sendSetInputPos({ inputPos: encoder_raw, torqueFf: 0, velFf: 0 })
-    await odrive.expect(Packets.GetEncoderEstimates, (encoder) => isInPosition(encoder.posEstimate, encoder_raw), `Did not go to rot (raw), expected ${encoder_raw}, got ${positions[axis]}`, timeout)
+    await odrive.expect(Packets.GetEncoderEstimates, (encoder) => isInPosition(encoder.posEstimate, encoder_raw), `Did not go to rot (raw), expected ${encoder_raw}, got ${positions[axis]}, axis ${axis}`, timeout)
 }
 
 const sendToRaw = (axis: number, encoder_raw: number) => {
@@ -95,46 +100,52 @@ const sendToRaw = (axis: number, encoder_raw: number) => {
 }
 
 const sendData = (str: string) => {
+    // TODO Display all 3 axis state
     process.stdout.clearLine(0);
     process.stdout.cursorTo(0);
     process.stdout.write(str);
 }
 
 const goToAngle = async (axis: 0 | 1 | 2, angle: number, wait = true) => {
+    angles[axis] = angle
     var circularPosition = angle / (Math.PI * 2)
     if (circularPosition < 0 || circularPosition > 1) {
         console.log('Axis %d can\'t go to angle %d (%d), violates circularity at %d', axis, angle.toFixed(4), radToDeg(angle).toFixed(2), circularPosition.toFixed(4))
         return
     }
     if (simulateCircularMotion) {
-        const currentAngle = wrapToCircle(positions[axis])
+        const currentAngle = wrapToCircle(lastSentPosition[axis])
         var diff = circularPosition - currentAngle
         if (diff < -0.5)
             diff += 1
-        sendData(util.format('Axis %d going to %s (%s), target pos %s', axis, angle.toFixed(2), radToDeg(angle).toFixed(2), circularPosition.toFixed(4)))
+        const targetPosition = lastSentPosition[axis] + diff
+        sendData(util.format('Axis %d going to %s (%s), diff %s, target circular pos %s, target absolute pos %s', axis, angle.toFixed(2), radToDeg(angle).toFixed(2), diff.toFixed(4), circularPosition.toFixed(4), targetPosition.toFixed(4)))
         //console.log('Axis %d going to %s (%s), target pos %s', axis, angle.toFixed(2), radToDeg(angle).toFixed(2), circularPosition.toFixed(4))
-        circularPosition = positions[axis] + diff
+        circularPosition = targetPosition
+        lastSentPosition[axis] = targetPosition
     }
-    // if (wait)
-    //    await goToRaw(axis, circularPosition, 10000)
-    //else
-    //     sendToRaw(axis, circularPosition)
-    angleSubject.next({ x: angle, y: angle, z: angle }); // FIXME -> should prob come from the estimated pos of all axis instead of the target
+    if (wait)
+        await goToRaw(axis, circularPosition, 10000)
+    else
+        sendToRaw(axis, circularPosition)
+    // TODO axis mismatch
+    angleSubject.next({ x: angles[2], y: angles[1], z: angles[0] });
 }
 
 
 
 const goToAngles = async ({ x, y, z }: { x: number; y: number; z: number }, wait = true) => {
     await Promise.all([
-        goToAngle(2, z, wait),
-        goToAngle(1, y, wait),
-        goToAngle(0, x, wait)
+        goToAngle(0, y, wait),
+        goToAngle(1, z, wait),
+        goToAngle(2, x, wait)
     ])
 }
 
 const goToHome = async () => {
-    await Promise.all(odrives.map((odrive, index) => goToRaw(index, home_calibration[index], 10_000)))
+    await Promise.all(odrives.map((odrive, index) => sendToRaw(index, home_calibration[index])))
     positions.forEach((v, i) => positions[i] = 0)
+    lastSentPosition.forEach((v, i) => lastSentPosition[i] = 0)
 }
 
 const degToRad = (degrees: number) => (degrees * Math.PI) / 180;
@@ -170,12 +181,20 @@ wsServer.server.on('connection', (socket) => {
         await Promise.all(odrives.map(async (odrive) => {
             odrive.sendSetAxisState({ axisRequestedState: "ENCODER_INDEX_SEARCH" })
             await odrive.expect(Packets.Heartbeat, (heartbeat) => heartbeat.procedureResult === 'SUCCESS', 'Did not finish encoder index', 10_000);
+        }))
+        //console.log('Going home~')
+        //await goToHome();
+        
+        const answer = await confirm({ message: 'Place the jig in the home position and press Enter' });
+        if (!answer) throw 'aborted'
+        forEachController((odrive) => odrive.endpoints['axis0.pos_estimate'].set(0))
+        await Promise.all(odrives.map(async (odrive) => {
             odrive.sendSetControllerMode({ controlMode: 'POSITION_CONTROL', inputMode: 'TRAP_TRAJ' })
             odrive.sendSetAxisState({ axisRequestedState: "CLOSED_LOOP_CONTROL" })
             await odrive.expect(Packets.Heartbeat, (heartbeat) => heartbeat.axisState === 'CLOSED_LOOP_CONTROL', 'Axis not in closed loop', 10_000);
         }))
-        console.log('Going home~')
-        await goToHome(); console.log('Having fun~')
+
+        console.log('Having fun~')
     }
 
     const server = createSever(6969, '0.0.0.0');
@@ -186,15 +205,16 @@ wsServer.server.on('connection', (socket) => {
         onPacket: (rinfo, packet) => {
             if (packet.sensorId == 0 && packet.dataType == 1) {
                 const time = Date.now()
-                if (time - lastUpdateTime > 100) {
+                //if (time - lastUpdateTime > 100) {
                     lastUpdateTime = time
                     const quat = new Quaternion(packet.rotation.x, packet.rotation.y, packet.rotation.z, packet.rotation.w)
                     const ofseted = AXIS_OFFSET.clone().multiply(quat)
-                    const euler = new Euler().setFromQuaternion(ofseted)
+                    const euler = new Euler().setFromQuaternion(ofseted, "YZX")
                     //console.log('Angles: %s, %s, %s', radToDeg(euler.x).toFixed(2), radToDeg(euler.y).toFixed(2), radToDeg(euler.z).toFixed(2))
-                    //goToAngles({ x: euler.y, y: euler.z, z: euler.x }, false)
-                    goToAngle(0, euler.y + Math.PI, false)
-                }
+                    //goToAngles({ x: Math.PI - euler.x, y: 0, z: 0 }, false)
+                    goToAngles({ x: Math.PI - euler.x, y: Math.PI - euler.y, z: Math.PI - euler.z }, false)
+                    //goToAngle(0, Math.PI - euler.y, false)
+               //}
             }
         }
     })
