@@ -173,15 +173,18 @@ class VisualizerState:
     start_time: Optional[float] = None
     samples: int = 0
 
-    # maxlen the grapths keep before discard is calculated from GRAPH_WINDOW_SECONDS * GRAPH_SAMPLE_HZ * margin
+    # maxlen the graphs keep before discard is calculated from GRAPH_WINDOW_SECONDS * GRAPH_SAMPLE_HZ * margin
     history_len: int = HISTORY_MAXLEN
     time_history: Deque[float] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
-    battery_history: Deque[float] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
-    voltage_history: Deque[float] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
     roll_history: Deque[float] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
     pitch_history: Deque[float] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
     yaw_history: Deque[float] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
     err_history: Deque[float] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
+
+    # entire session batt hist
+    battery_time_history: List[float] = field(default_factory=list)
+    battery_history: List[float] = field(default_factory=list)
+    voltage_history: List[float] = field(default_factory=list)
 
 # Global state
 viz_state = VisualizerState()
@@ -224,6 +227,9 @@ def update_viz_state(
             viz_state.yaw_history.append(euler[2])
             viz_state.time_history.append(elapsed)
 
+        #we have to now record that data separately since we want to keep all battery data
+        if battery_pct is not None or battery_volt is not None:
+            viz_state.battery_time_history.append(elapsed)
             viz_state.battery_history.append(viz_state.battery_pct)
             viz_state.voltage_history.append(viz_state.battery_volt)
 
@@ -247,6 +253,7 @@ def get_viz_state() -> dict:
             'start_time': viz_state.start_time,
             'samples': viz_state.samples,
             'time_history': list(viz_state.time_history),
+            'battery_time_history': list(viz_state.battery_time_history),
             'battery_history': list(viz_state.battery_history),
             'voltage_history': list(viz_state.voltage_history),
             'roll_history': list(viz_state.roll_history),
@@ -1243,26 +1250,19 @@ class RealtimeVisualizer:
                     dpg.set_axis_limits("euler_x_axis", window_start, current_time + 1)
                     dpg.set_axis_limits("batt_x_axis", window_start, current_time + 1)
 
+            batt_time_hist = state['battery_time_history']
             batt_hist = state['battery_history']
             volt_hist = state['voltage_history']
-            if batt_hist and time_hist and len(time_hist) > 0:
-                current_time = time_hist[-1]
-                window_start = max(0, current_time - GRAPH_WINDOW_SECONDS)
+            if batt_time_hist and batt_hist:
+                dpg.set_value("batt_series", [batt_time_hist, batt_hist])
 
-                start_idx = 0
-                for i, t in enumerate(time_hist):
-                    if t >= window_start:
-                        start_idx = i
-                        break
+                if volt_hist:
+                    volt_scaled = [v * 20 for v in volt_hist]
+                    dpg.set_value("volt_series", [batt_time_hist, volt_scaled])
 
-                time_visible = list(time_hist)[start_idx:]
-                batt_visible = list(batt_hist)[start_idx:]
-
-                dpg.set_value("batt_series", [time_visible, batt_visible])
-
-                if volt_hist and len(volt_hist) > start_idx:
-                    volt_visible = [v * 20 for v in list(volt_hist)[start_idx:]]
-                    dpg.set_value("volt_series", [time_visible, volt_visible])
+                #scale x-axis to show all battery data
+                if len(batt_time_hist) > 1:
+                    dpg.set_axis_limits("batt_x_axis", 0, batt_time_hist[-1] + 1)
 
             self._last_ui_update = now
 
