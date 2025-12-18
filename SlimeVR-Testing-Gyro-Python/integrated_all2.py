@@ -148,6 +148,12 @@ TX_RETRIES = 10
 
 VERBOSE = False
 
+# Graph Configuration
+GRAPH_WINDOW_SECONDS = 60  # how many seconds to show on the graph
+GRAPH_SAMPLE_HZ = 120.0 # data rate of trackers
+GRAPH_BUFFER_MARGIN = 1.2  # extra pad amount for data 
+HISTORY_MAXLEN = int(GRAPH_WINDOW_SECONDS * GRAPH_SAMPLE_HZ * GRAPH_BUFFER_MARGIN)
+
 @dataclass
 class VisualizerState:
     # Tracker data
@@ -167,15 +173,15 @@ class VisualizerState:
     start_time: Optional[float] = None
     samples: int = 0
 
-    # History buffers
-    history_len: int = 3000
-    time_history: Deque[float] = field(default_factory=lambda: deque(maxlen=3000))
-    battery_history: Deque[float] = field(default_factory=lambda: deque(maxlen=3000))
-    voltage_history: Deque[float] = field(default_factory=lambda: deque(maxlen=3000))
-    roll_history: Deque[float] = field(default_factory=lambda: deque(maxlen=3000))
-    pitch_history: Deque[float] = field(default_factory=lambda: deque(maxlen=3000))
-    yaw_history: Deque[float] = field(default_factory=lambda: deque(maxlen=3000))
-    err_history: Deque[float] = field(default_factory=lambda: deque(maxlen=3000))
+    # maxlen the grapths keep before discard is calculated from GRAPH_WINDOW_SECONDS * GRAPH_SAMPLE_HZ * margin
+    history_len: int = HISTORY_MAXLEN
+    time_history: Deque[float] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
+    battery_history: Deque[float] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
+    voltage_history: Deque[float] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
+    roll_history: Deque[float] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
+    pitch_history: Deque[float] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
+    yaw_history: Deque[float] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
+    err_history: Deque[float] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
 
 # Global state
 viz_state = VisualizerState()
@@ -1215,7 +1221,7 @@ class RealtimeVisualizer:
             time_hist = state['time_history']
             if time_hist and len(time_hist) > 0:
                 current_time = time_hist[-1]
-                window_start = max(0, current_time - 60)
+                window_start = max(0, current_time - GRAPH_WINDOW_SECONDS)
 
                 start_idx = 0
                 for i, t in enumerate(time_hist):
@@ -1241,7 +1247,7 @@ class RealtimeVisualizer:
             volt_hist = state['voltage_history']
             if batt_hist and time_hist and len(time_hist) > 0:
                 current_time = time_hist[-1]
-                window_start = max(0, current_time - 60)
+                window_start = max(0, current_time - GRAPH_WINDOW_SECONDS)
 
                 start_idx = 0
                 for i, t in enumerate(time_hist):
