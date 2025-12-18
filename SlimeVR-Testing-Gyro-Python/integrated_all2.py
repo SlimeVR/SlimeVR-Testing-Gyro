@@ -20,7 +20,7 @@ def setup_error_logging():
     log_dir = Path(__file__).parent / "logs"
     log_dir.mkdir(exist_ok=True)
 
-    log_filename = log_dir / f"error_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    log_filename = log_dir / f"error_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
 
     file_handler = logging.FileHandler(log_filename, encoding='utf-8')
     file_handler.setLevel(logging.ERROR)
@@ -36,7 +36,7 @@ def setup_error_logging():
     root_logger.setLevel(logging.ERROR)
     root_logger.addHandler(file_handler)
 
-    latest_log = log_dir / "latest_error.log"
+    latest_log = log_dir / "latest_error.txt"
     latest_handler = logging.FileHandler(latest_log, mode='w', encoding='utf-8')
     latest_handler.setLevel(logging.ERROR)
     latest_handler.setFormatter(detailed_formatter)
@@ -222,7 +222,7 @@ def update_viz_state(
             viz_state.voltage_history.append(viz_state.battery_volt)
 
         if enc_deg is not None:
-            err = sum((g - e) ** 2 for g, e in zip(viz_state.goal_deg, viz_state.enc_deg)) ** 0.5
+            err = sum(err_short(g, e) ** 2 for g, e in zip(viz_state.goal_deg, viz_state.enc_deg)) ** 0.5
             viz_state.err_history.append(err)
 
         viz_state.samples += 1
@@ -996,7 +996,7 @@ class RealtimeVisualizer:
             dpg.draw_rectangle((80, 5), (120, 20), color=(100, 100, 150, 255), fill=(100, 100, 150, 255))
             dpg.draw_rectangle((55, 375), (145, 375), color=(0, 255, 100, 255), fill=(0, 255, 100, 200), tag="batt_fill")
             dpg.draw_text((65, 190), "100%", color=(255, 255, 255, 255), size=24, tag="batt_text")
-            dpg.draw_text((60, 390), "4.20V", color=(150, 150, 200, 255), size=16, tag="volt_text")
+            dpg.draw_text((60, 382), "4.20V", color=(150, 150, 200, 255), size=16, tag="volt_text")
 
     def _create_3d_gimbal(self, parent=None):
         with dpg.drawlist(width=400, height=400, tag="gimbal_canvas"):
@@ -1046,7 +1046,7 @@ class RealtimeVisualizer:
 
         dpg.configure_item("batt_fill", pmin=(55, fill_height), pmax=(145, 375), color=color, fill=color)
         dpg.configure_item("batt_text", text=f"{pct:.0f}%", pos=(65 if pct >= 10 else 75, 190))
-        dpg.configure_item("volt_text", text=f"{volt:.2f}V", pos=(60, 390))
+        dpg.configure_item("volt_text", text=f"{volt:.2f}V", pos=(60, 382))
 
     def _build_ui(self):
         dpg.create_context()
