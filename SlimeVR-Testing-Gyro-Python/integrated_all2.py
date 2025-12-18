@@ -1295,9 +1295,6 @@ def main() -> None:
     sys.excepthook = log_exception
     threading.excepthook = log_thread_exception
 
-    print("=" * 80)
-    print("Integrated Gimbal + IMU Tracker Visualization System")
-    print("=" * 80)
     print(f"[LOG] Error logging to {log_file}")
 
     # Initialize CSV logger
