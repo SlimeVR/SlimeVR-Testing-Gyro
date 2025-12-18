@@ -3,15 +3,65 @@ from __future__ import annotations
 import asyncio
 import can
 import csv
+import logging
 import math
 import os
 import struct
+import sys
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Tuple, List, Optional, Deque
+
+def setup_error_logging():
+    log_dir = Path(__file__).parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+
+    log_filename = log_dir / f"error_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+    file_handler = logging.FileHandler(log_filename, encoding='utf-8')
+    file_handler.setLevel(logging.ERROR)
+
+    detailed_formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(funcName)s\n'
+        'Message: %(message)s\n'
+        '---'
+    )
+    file_handler.setFormatter(detailed_formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.ERROR)
+    root_logger.addHandler(file_handler)
+
+    latest_log = log_dir / "latest_error.log"
+    latest_handler = logging.FileHandler(latest_log, mode='w', encoding='utf-8')
+    latest_handler.setLevel(logging.ERROR)
+    latest_handler.setFormatter(detailed_formatter)
+    root_logger.addHandler(latest_handler)
+
+    return log_filename
+
+error_logger = logging.getLogger(__name__)
+
+def log_exception(exc_type, exc_value, exc_tb):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+        return
+
+    error_logger.error(
+        "Uncaught exception",
+        exc_info=(exc_type, exc_value, exc_tb)
+    )
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+def log_thread_exception(args):
+    error_logger.error(
+        f"Uncaught exception in thread {args.thread.name}",
+        exc_info=(args.exc_type, args.exc_value, args.exc_traceback)
+    )
 
 try:
     import dearpygui.dearpygui as dpg
@@ -1235,9 +1285,14 @@ class RealtimeVisualizer:
             self._thread.join(timeout=2.0)
 
 def main() -> None:
+    log_file = setup_error_logging()
+    sys.excepthook = log_exception
+    threading.excepthook = log_thread_exception
+
     print("=" * 80)
     print("Integrated Gimbal + IMU Tracker Visualization System")
     print("=" * 80)
+    print(f"[LOG] Error logging to {log_file}")
 
     # Initialize CSV logger
     logger = CSVLogger(Path("integrated_tracker_log.csv"))
