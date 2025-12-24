@@ -548,7 +548,7 @@ class GimbalThread(threading.Thread):
         _send_rtr(bus, cid(nid, CMD_ENCODER_EST), dlc_try=(8, 0))
         deadline = time.time() + timeout
         while time.time() < deadline:
-            msg = bus.recv(timeout=deadline - time.time())
+            msg = bus.recv(timeout=max(0, deadline - time.time()))
             if (
                 msg
                 and (msg.arbitration_id >> 5) == nid
