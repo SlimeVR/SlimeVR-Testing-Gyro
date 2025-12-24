@@ -86,7 +86,8 @@ except ImportError:
 
 
 # CAN Bus Configuration
-BUS_CH = 0
+BUS_CH = "can0"
+CAN_INTERFACE = "socketcan"
 NODE_IDS = [1, 2, 3]
 
 # Gimbal Parameters
@@ -590,7 +591,7 @@ class BVHGimbalThread(GimbalThread):
 
     def run(self) -> None:
         try:
-            with can.interface.Bus(channel=BUS_CH, interface="cantact") as bus:
+            with can.interface.Bus(channel=BUS_CH, interface=CAN_INTERFACE) as bus:
                 self._flush(bus)
                 for nid in NODE_IDS:
                     self._send(bus, nid, CMD_CLR_ERR)
